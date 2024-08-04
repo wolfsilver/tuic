@@ -15,6 +15,8 @@ use std::{
     },
 };
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 mod handle_task;
 mod udp_session;
@@ -28,6 +30,8 @@ pub struct Server {
     dual_stack: Option<bool>,
     max_pkt_size: usize,
     next_assoc_id: AtomicU16,
+    worker_handles: Vec<JoinHandle<()>>,
+    sender: mpsc::Sender<(Connection, SocketAddr)>,
 }
 
 impl Server {
@@ -99,11 +103,54 @@ impl Server {
             _ => return Err(Error::InvalidSocks5Auth),
         };
 
+        let (sender, receiver) = mpsc::channel(100);
+        let worker_handles = (0..num_cpus::get())
+            .map(|_| {
+                let receiver = receiver.clone();
+                tokio::spawn(async move {
+                    while let Some((conn, addr)) = receiver.recv().await {
+                        tokio::spawn(async move {
+                            match conn.handshake().await {
+                                Ok(Connection::Associate(associate, _)) => {
+                                    let assoc_id = SERVER
+                                        .get()
+                                        .unwrap()
+                                        .next_assoc_id
+                                        .fetch_add(1, Ordering::Relaxed);
+                                    log::info!("[socks5] [{addr}] [associate] [{assoc_id:#06x}]");
+                                    Server::handle_associate(
+                                        associate,
+                                        assoc_id,
+                                        SERVER.get().unwrap().dual_stack,
+                                        SERVER.get().unwrap().max_pkt_size,
+                                    )
+                                    .await;
+                                }
+                                Ok(Connection::Bind(bind, _)) => {
+                                    log::info!("[socks5] [{addr}] [bind]");
+                                    Server::handle_bind(bind).await;
+                                }
+                                Ok(Connection::Connect(connect, target_addr)) => {
+                                    log::info!("[socks5] [{addr}] [connect] {target_addr}");
+                                    Server::handle_connect(connect, target_addr).await;
+                                }
+                                Err(err) => log::warn!("[socks5] [{addr}] handshake error: {err}"),
+                            };
+
+                            log::debug!("[socks5] [{addr}] connection closed");
+                        });
+                    }
+                })
+            })
+            .collect();
+
         Ok(Self {
             inner: Socks5Server::new(socket, auth),
             dual_stack,
             max_pkt_size,
             next_assoc_id: AtomicU16::new(0),
+            worker_handles,
+            sender,
         })
     }
 
@@ -119,33 +166,9 @@ impl Server {
             match server.inner.accept().await {
                 Ok((conn, addr)) => {
                     log::debug!("[socks5] [{addr}] connection established");
-
-                    tokio::spawn(async move {
-                        match conn.handshake().await {
-                            Ok(Connection::Associate(associate, _)) => {
-                                let assoc_id = server.next_assoc_id.fetch_add(1, Ordering::Relaxed);
-                                log::info!("[socks5] [{addr}] [associate] [{assoc_id:#06x}]");
-                                Self::handle_associate(
-                                    associate,
-                                    assoc_id,
-                                    server.dual_stack,
-                                    server.max_pkt_size,
-                                )
-                                .await;
-                            }
-                            Ok(Connection::Bind(bind, _)) => {
-                                log::info!("[socks5] [{addr}] [bind]");
-                                Self::handle_bind(bind).await;
-                            }
-                            Ok(Connection::Connect(connect, target_addr)) => {
-                                log::info!("[socks5] [{addr}] [connect] {target_addr}");
-                                Self::handle_connect(connect, target_addr).await;
-                            }
-                            Err(err) => log::warn!("[socks5] [{addr}] handshake error: {err}"),
-                        };
-
-                        log::debug!("[socks5] [{addr}] connection closed");
-                    });
+                    if let Err(err) = server.sender.send((conn, addr)).await {
+                        log::warn!("[socks5] failed to send connection to worker: {err}");
+                    }
                 }
                 Err(err) => log::warn!("[socks5] failed to establish connection: {err}"),
             }
