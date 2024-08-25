@@ -239,6 +239,29 @@ impl Connection {
             self.model.collect_garbage(gc_lifetime);
         }
     }
+
+    pub async fn relay_packet(self, pkt: Bytes, addr: Address, assoc_id: u16) {
+        let addr_display = addr.to_string();
+
+        log::info!(
+            "[relay] [packet] [{assoc_id:#06x}] [to-{mode}] from {src_addr}",
+            mode = self.udp_relay_mode,
+            src_addr = addr_display,
+        );
+
+        let res = match self.udp_relay_mode {
+            UdpRelayMode::Native => self.model.packet_native(pkt, addr, assoc_id),
+            UdpRelayMode::Quic => self.model.packet_quic(pkt, addr, assoc_id).await,
+        };
+
+        if let Err(err) = res {
+            log::warn!(
+                "[relay] [packet] [{assoc_id:#06x}] [to-{mode}] from {src_addr}: {err}",
+                mode = self.udp_relay_mode,
+                src_addr = addr_display,
+            );
+        }
+    }
 }
 
 struct Endpoint {

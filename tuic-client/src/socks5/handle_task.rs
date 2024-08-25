@@ -8,6 +8,11 @@ use socks5_server::{
 use tokio::io::{self, AsyncWriteExt};
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tuic::Address as TuicAddress;
+use once_cell::sync::Lazy;
+use tokio::sync::Mutex;
+use std::collections::HashMap;
+
+static CONNECTION_POOL: Lazy<Mutex<HashMap<String, TuicConnection>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 impl Server {
     pub async fn handle_associate(
@@ -61,10 +66,23 @@ impl Server {
                                 Address::SocketAddress(addr) => TuicAddress::SocketAddress(addr),
                             };
 
-                            match TuicConnection::get().await {
-                                Ok(conn) => conn.packet(pkt, target_addr, assoc_id).await,
-                                Err(err) => Err(err),
-                            }
+                            let conn_key = format!("{:?}", target_addr);
+                            let conn = {
+                                let mut pool = CONNECTION_POOL.lock().await;
+                                if let Some(conn) = pool.get(&conn_key) {
+                                    conn.clone()
+                                } else {
+                                    match TuicConnection::get().await {
+                                        Ok(conn) => {
+                                            pool.insert(conn_key.clone(), conn.clone());
+                                            conn
+                                        }
+                                        Err(err) => return Err(err),
+                                    }
+                                }
+                            };
+
+                            conn.packet(pkt, target_addr, assoc_id).await
                         };
 
                         tokio::spawn(async move {
@@ -149,9 +167,20 @@ impl Server {
             Address::SocketAddress(addr) => TuicAddress::SocketAddress(addr),
         };
 
-        let relay = match TuicConnection::get().await {
-            Ok(conn) => conn.connect(target_addr.clone()).await,
-            Err(err) => Err(err),
+        let conn_key = format!("{:?}", target_addr);
+        let relay = {
+            let mut pool = CONNECTION_POOL.lock().await;
+            if let Some(conn) = pool.get(&conn_key) {
+                conn.connect(target_addr.clone()).await
+            } else {
+                match TuicConnection::get().await {
+                    Ok(conn) => {
+                        pool.insert(conn_key.clone(), conn.clone());
+                        conn.connect(target_addr.clone()).await
+                    }
+                    Err(err) => Err(err),
+                }
+            }
         };
 
         match relay {
