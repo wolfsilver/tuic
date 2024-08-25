@@ -16,12 +16,101 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - arch-name: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            cross: true
+            file-ext:
+
           - arch-name: x86_64-unknown-linux-musl
             os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             cross: true
             file-ext:
 
+          - arch-name: x86_64-unknown-freebsd
+            os: ubuntu-latest
+            target: x86_64-unknown-freebsd
+            cross: true
+            file-ext:
+
+          - arch-name: x86_64-pc-windows-msvc
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            cross: false
+            file-ext: .exe
+
+          - arch-name: x86_64-pc-windows-gnu
+            os: ubuntu-latest
+            target: x86_64-pc-windows-gnu
+            cross: true
+            file-ext: .exe
+
+          - arch-name: x86_64-apple-darwin
+            os: macos-latest
+            target: x86_64-apple-darwin
+            cross: false
+            file-ext:
+
+          - arch-name: i686-unknown-linux-gnu
+            os: ubuntu-latest
+            target: i686-unknown-linux-gnu
+            cross: true
+            file-ext:
+
+          - arch-name: i686-unknown-linux-musl
+            os: ubuntu-latest
+            target: i686-unknown-linux-musl
+            cross: true
+            file-ext:
+
+          - arch-name: i686-pc-windows-msvc
+            os: windows-latest
+            target: i686-pc-windows-msvc
+            cross: true
+            file-ext: .exe
+
+          - arch-name: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cross: true
+            file-ext:
+
+          - arch-name: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            cross: true
+            file-ext:
+
+          - arch-name: aarch64-apple-darwin
+            os: macos-latest
+            target: aarch64-apple-darwin
+            cross: true
+            file-ext:
+
+          - arch-name: armv7-unknown-linux-gnueabi
+            os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabi
+            cross: true
+            file-ext:
+
+          - arch-name: armv7-unknown-linux-gnueabihf
+            os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            cross: true
+            file-ext:
+
+          - arch-name: armv7-unknown-linux-musleabi
+            os: ubuntu-latest
+            target: armv7-unknown-linux-musleabi
+            cross: true
+            file-ext:
+
+          - arch-name: armv7-unknown-linux-musleabihf
+            os: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            cross: true
+            file-ext:
 
     runs-on: ${{ matrix.os }}
 
